@@ -1,4 +1,4 @@
-import pylast, sys, sqlite3, os, re
+import pylast, sys, sqlite3, os, re, notifo
 from musicbrainz2.webservice import Query, ArtistFilter, WebServiceError
 import musicbrainz2.webservice as ws
 import musicbrainz2.model as model
@@ -14,92 +14,184 @@ connection = sqlite3.connect('musicSearch.db')
 cursor = connection.cursor()
 
 q = Query()
-query = ArtistFilter("Streetlight Manifesto", limit = 2)
-artistResults = q.getArtists(query)
+z = ws.Query()
 
 path = "C:\Users\Mongo\Music\iTunes\iTunes Media\Music"
 unknown = ".+unknown.+"
 
+numAlbums = None
+
 itunesArtist = os.listdir(path)
-artistExists = 0
 
 def findArtist():
     artistName = cursor.execute('SELECT ArtistName FROM Artists')
+    count = 1
     
-    for i in itunesArtist:
-        try:
-            filter = ArtistFilter(i, limit = 2)
-            artistResults = q.getArtists(filter)
-        except WebServiceError, e:
-            print 'Could not find artist ' + i
-            sys.exit(1)
-        
+#    for i in itunesArtist:
+    try:
+        filter = ArtistFilter("Sum 41", limit = 5)
+        artistResults = q.getArtists(filter)
+    except WebServiceError, e:
+        print 'Error:', e
+        sys.exit(1)
+     
+    print
     for result in artistResults:
-        for j in itunesArtist:
-            if j != "Unknown Artist":
-                artist = result.artist
-                if j == artist:
-                    artistName = artist.name
-                    artistID = artist.id
-                    print artistName
-                    print
-                    print artistID
-        
-                
-def checkAlbums(numAlbums, albumName, artist):
-    numAlbumsOwned = cursor.execute('SELECT NumAlbums FROM Artists')
-    albumsOwned = cursor.execute('SELECT AlbumName FROM Albums')
+        artist = result.artist
+        print "Number:      ", count
+        print "Unique Name: ", artist.getUniqueName()
+        print "ID:          ", artist.id
+        print
+        count += 1
     
-    if numAlbumsOwned != numAlbums:
-        for album in albumsOwned:
-            if album != albumName:
-                #notifo.send_notification(USERNAME, API_KEY, USERNAME, artist + ": " + albumName, "Music", "New Album Found")
-                print "This is where Notifo comes in!"
-        else:
-            print "No new Albums"
+    selection = raw_input("Please Select the [Number] of the correct Artist: ")
+    
+    count = 1
+    artist = None
+    for result in artistResults:
+        artist = result.artist
+        if int(selection) == count:
+            getAlbumNum(artist.id)
+            print
+            print artist.name, "will be added to the database!"
+            break
+        count += 1
+    
+    return artist
 
-def addArtists(mbid, name, albums):
-    DBArtist = cursor.execute('SELECT ArtistName FROM Artists')
+def findAlbumsOwned(artist):
+    albumPath = 'C:\Users\Mongo\Music\iTunes\iTunes Media\Music\%s' % artist.name
+    itunesAlbums = os.listdir(albumPath)
+    checkAlbum = dict()
+    album = ()
+    albumList = []
     
-    for i in itunesArtist:
-#        if i != name:
-        cursor.execute('''INSERT INTO Artists (ArtistMBID, ArtistName, NumAlbums)
-        VALUES (?, ?, ?)''', (mbid, name, 3))
-#        else:
-#            print "Artist already exists"
-    
-def addAlbums(mbid, name):
-    if name == getAlbum():
-        cursor.execute('''INSERT INTO Albums (AlbumMBID, AlbumName)
-        VALUES (?, ?)''', (mbid, name))
-    else:
-        print "Album already exists"
-
-def main():
-    z = ws.Query()
     try:
         inc = ws.ArtistIncludes (
             releases = (model.Release.TYPE_OFFICIAL, model.Release.TYPE_ALBUM),
             tags = False, releaseGroups = False)
-        artist = z.getArtistById("http://musicbrainz.org/artist/cbc9199f-944b-42e9-a945-627c9fc0ba6e", inc)
+        artist = z.getArtistById(artist.id, inc)
     except ws.WebServiceError, e:
         print 'Error:', e
         sys.exit(1)
+    
+    for release in artist.getReleases():
+        if release.title in itunesAlbums:
+            code = 2
+#            print release.title, "will be added to the database!"
+            album = (release.title, release.id, code,)
+            albumList.append(album)
+#            print album
+        elif release.title not in itunesAlbums:
+            code = 0
+#            print release.title, "will be added to the database!"
+            album = (release.title, release.id, code,)
+            albumList.append(album)
+#            print album
+            
+    return albumList
+            
+def getAlbumNum(id):
 
+    global numAlbums
+    
+    try:
+        inc = ws.ArtistIncludes (
+            releases = (model.Release.TYPE_OFFICIAL, model.Release.TYPE_ALBUM),
+            tags = False, releaseGroups = False)
+        artist = z.getArtistById(id, inc)
+    except ws.WebServiceError, e:
+        print 'Error:', e
+        sys.exit(1)
+        
     numAlbums = len(artist.getReleases())
-#    addArtists(artist.id, artist.name, numAlbums)
-    findArtist()
+    
+    return numAlbums
+        
+def sendNotifo(album, artist):
+        
+#   notifo.send_notification(USERNAME, API_KEY, USERNAME, album[2] + " by " + artist, "Music", "Missing Albums")
+        
+    cursor.execute('UPDATE Albums SET Code=1 WHERE AlbumMBID=?', (album[1],))
 
-#    if len(artist.getReleases()) == 0:
-#        print "No Albums found by " + artist.name
-#        sys.exit(1)
-#    else:
-#        for release in artist.getReleases():
-#            addAlbums(release.id, release.title)
-#            checkAlbums(numAlbums, release.title, artist.name)
+        
+def addArtist(artist):
+    
+    cursor.execute('''INSERT INTO Artists (ArtistMBID, ArtistName, NumAlbums) 
+    VALUES (?, ?, ?)''', (artist.id, artist.name, numAlbums))
+        
+    connection.commit()
+
+def addAlbum(album, artist):
+
+    cursor.execute('''INSERT INTO Albums (AlbumMBID, AlbumName, ArtistMBID, Code)
+    VALUES (?, ?, ?, ?)''', (album[1], album[0], artist.id, album[2]))
     
     connection.commit()
-            
+    
+def compareAlbums():
+
+    DBArtist = cursor.execute('SELECT * FROM Artists')
+    DBArtistFetch = DBArtist.fetchall()
+
+    print
+    print "Checking for new albums!"
+    
+    for i in DBArtistFetch:
+        DBAlbum = cursor.execute('SELECT * FROM Albums WHERE ArtistMBID = ? AND Code = 0', (i[1],))
+        allAlbums = DBAlbum.fetchall()
+#        print len(DBAlbum.fetchall())
+        if allAlbums:
+            print
+            print "Albums Missing!"
+            for j in allAlbums:
+                sendNotifo(j, i[2])
+#                print j[2], "is missing..."
+#                albumsMissing = findAlbumsMissing(allAlbums)
+        else:
+            print "No New Albums Found!"
+
+def main():
+
+    artist = findArtist()
+    DBArtist = cursor.execute('SELECT ArtistName FROM Artists WHERE ArtistMBID = ?', (artist.id,))
+    
+    if DBArtist.fetchone() is None:
+        addArtist(artist)
+        print artist.name, "was successfully added!"
+    else:
+        print artist.name, "already exists in the database."
+        
+    releaseList = findAlbumsOwned(artist)
+    for release in releaseList:
+        DBAlbum = cursor.execute('SELECT DISTINCT AlbumName FROM Albums WHERE AlbumName = ?', (release[0],))
+#        print DBAlbum.fetchone()
+        if DBAlbum.fetchone() is None:
+            addAlbum(release, artist)
+            print release[0], "was successfully added!"
+        elif DBAlbum.fetchone() is not None:
+            pass
+#            print release[0], "already exists in the database."
+    
+    selection = raw_input("Would you like to check for new albums? ")
+    
+    if selection is "n":
+        print
+        print "Goodbye!"
+    elif selection is "y":
+        compareAlbums()
+    
     cursor.close()
     
 if __name__ == '__main__': main()
+
+
+
+
+
+
+
+#Add every album to the database add column with code:
+#0 = Do not own
+#1 = Notified
+#2 = Owned
