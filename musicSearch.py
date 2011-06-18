@@ -4,8 +4,8 @@ import musicbrainz2.webservice as ws
 import musicbrainz2.model as model
 
 # Notifo API settings
-USERNAME = "mongo527"
-API_KEY = "xdcba2f866515d5f417c98b49d3198cb97512b12b"
+USERNAME = ""
+API_KEY = ""
 
 # NZBMatrix Account Details
 #API_URL = "http://api.nzbmatrix.com/v1.1/search.php?search=" + searchTerm + #"&catid=22&age=800&username=burningfire&apikey=75390295cf99a1db49c9314c86061405"
